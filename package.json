@@ -1,19 +1,28 @@
 {
-  "name": "task-manager-ai",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "taskflow",
+  "version": "2.0.0",
+  "description": "TaskFlow: a phone-friendly task and reminder app with push notifications, repeating bill reminders and sharing.",
+  "main": "server.js",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --env-file-if-exists=.env --watch server.js",
+    "test": "node --test \"test/*.test.js\"",
+    "cf:dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "icons": "python3 scripts/make_icons.py"
   },
-  "keywords": [],
-  "author": "",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "author": "Gimena Rios Moreno",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "nodemailer": "^8.0.7",
-    "sqlite3": "^6.0.1"
+    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.9",
+    "nodemailer": "^10.0.11"
+  },
+  "devDependencies": {
+    "wrangler": "^4.142.0"
   }
 }

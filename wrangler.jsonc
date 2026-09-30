@@ -1,0 +1,14 @@
+{
+  // Cloudflare settings for `npm run deploy` (free Workers plan is enough).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "taskflow",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-01",
+  "assets": { "directory": "./public" },
+  "durable_objects": {
+    "bindings": [{ "name": "STORE", "class_name": "TaskFlowStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TaskFlowStore"] }],
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "observability": { "enabled": true }
+}

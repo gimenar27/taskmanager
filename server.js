@@ -1,155 +1,63 @@
-const express = require("express");
-const cors = require("cors");
-const sqlite3 = require("sqlite3").verbose();
-const nodemailer = require("nodemailer");
+// Run TaskFlow on your own computer or any Node host (`npm start`).
+// For free hosting on Cloudflare, see worker.js and DEPLOY.md.
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { serve } = require('@hono/node-server');
+const { serveStatic } = require('@hono/node-server/serve-static');
+const { openNodeDatabase } = require('./lib/db-node');
+const { createApp } = require('./lib/app');
 
-const app = express();
-const PORT = 3000;
+function createMailer(env) {
+  if (!env.SMTP_USER || !env.SMTP_PASS) return null;
+  const nodemailer = require('nodemailer');
+  const transport = nodemailer.createTransport(env.SMTP_HOST
+    ? { host: env.SMTP_HOST, port: Number(env.SMTP_PORT || 587), secure: env.SMTP_PORT === '465', auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } }
+    : { service: env.SMTP_SERVICE || 'gmail', auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } });
+  const from = env.MAIL_FROM || `TaskFlow <${env.SMTP_USER}>`;
+  return { send: (to, subject, text) => transport.sendMail({ from, to, subject, text }) };
+}
 
-app.use(cors());
-app.use(express.json());
+// Accounts made by an earlier build of this version used scrypt hashes; still accept them
+// (they're upgraded to the current format on login).
+function verifyScrypt(password, stored) {
+  if (typeof stored !== 'string' || !stored.startsWith('scrypt$')) return false;
+  const [, salt, hash] = stored.split('$');
+  const expected = Buffer.from(hash, 'base64');
+  const actual = crypto.scryptSync(password, Buffer.from(salt, 'base64'), expected.length, { N: 16384, r: 8, p: 1 });
+  return crypto.timingSafeEqual(actual, expected);
+}
 
-// DATABASE
-const db = new sqlite3.Database("./database.db");
-
-// EMAIL SETUP
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: "taskmessengerai@gmail.com",
-    pass: "hues qvcj gnlh zclf"
+async function main() {
+  const dataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
+  const dbFile = process.env.DB_PATH || path.join(dataDir, 'taskflow.db');
+  // Bring along the database from the first version of the app if it is still next to this file.
+  const legacy = path.join(__dirname, 'database.db');
+  if (!fs.existsSync(dbFile) && fs.existsSync(legacy)) {
+    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+    fs.copyFileSync(legacy, dbFile);
   }
-});
 
-// CREATE TABLES
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT,
-      email TEXT UNIQUE,
-      password TEXT
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS tasks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      title TEXT,
-      desc TEXT,
-      priority TEXT,
-      reminder TEXT,
-      due_date TEXT,
-      completed INTEGER DEFAULT 0
-    )
-  `);
-
-  // Add due_date column if it doesn't exist (for existing databases)
-  db.run(`ALTER TABLE tasks ADD COLUMN due_date TEXT`, () => {});
-});
-
-// TEST ROUTE
-app.get("/", (req, res) => {
-  res.send("TaskFlow server running!");
-});
-
-// SIGNUP
-app.post("/signup", (req, res) => {
-  const { name, email, password } = req.body;
-  db.run(
-    "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-    [name, email, password],
-    function (err) {
-      if (err) return res.json({ success: false, message: "Account already exists." });
-      res.json({ success: true, message: "Account created!" });
-    }
-  );
-});
-
-// LOGIN
-app.post("/login", (req, res) => {
-  const { email, password } = req.body;
-  db.get(
-    "SELECT * FROM users WHERE email = ? AND password = ?",
-    [email, password],
-    (err, user) => {
-      if (!user) return res.json({ success: false, message: "Invalid email or password." });
-      res.json({ success: true, userId: user.id, name: user.name, email: user.email });
-    }
-  );
-});
-
-// GET TASKS
-app.get("/tasks/:userId", (req, res) => {
-  const userId = req.params.userId;
-  db.all("SELECT * FROM tasks WHERE user_id = ?", [userId], (err, rows) => {
-    if (err) { console.log(err); return res.json([]); }
-    res.json(rows);
+  const { app, scheduler } = await createApp({
+    db: openNodeDatabase(dbFile),
+    env: process.env,
+    mailer: createMailer(process.env),
+    verifyLegacyHash: verifyScrypt,
   });
-});
+  app.use('*', serveStatic({
+    root: path.relative(process.cwd(), path.join(__dirname, 'public')) || '.',
+    onFound(file, c) {
+      if (/\.(html|webmanifest)$/.test(file) || file.endsWith('sw.js')) c.header('Cache-Control', 'no-cache');
+    },
+  }));
 
-// ADD TASK + SEND EMAIL
-app.post("/tasks", (req, res) => {
-  const { userId, title, desc, priority, reminder, dueDate, email } = req.body;
-
-  db.run(
-    "INSERT INTO tasks (user_id, title, desc, priority, reminder, due_date, completed) VALUES (?, ?, ?, ?, ?, ?, 0)",
-    [userId, title, desc, priority, reminder, dueDate || null],
-    function (err) {
-      if (err) { console.log("DB error:", err); return res.json({ success: false }); }
-
-      // SEND EMAIL
-      const dueLine = dueDate ? `\nDue Date: ${dueDate}` : "";
-      transporter.sendMail({
-        from: "taskmessengerai@gmail.com",
-        to: email,
-        subject: `New Task Created: ${title}`,
-        text: `You created a new task!\n\nTask: ${title}\nDescription: ${desc}\nPriority: ${priority}${dueLine}\nReminder: ${reminder}`
-      }, (error, info) => {
-        if (error) console.log("Email error:", error);
-        else console.log("Email sent:", info.response);
-      });
-
-      res.json({ success: true });
-    }
-  );
-});
-
-// EDIT TASK (PATCH)
-app.patch("/tasks/:id", (req, res) => {
-  const id = req.params.id;
-  const { title, desc, priority, dueDate } = req.body;
-
-  db.run(
-    "UPDATE tasks SET title = ?, desc = ?, priority = ?, due_date = ? WHERE id = ?",
-    [title, desc, priority, dueDate || null, id],
-    (err) => {
-      if (err) { console.log(err); return res.json({ success: false }); }
-      res.json({ success: true });
-    }
-  );
-});
-
-// COMPLETE TASK
-app.put("/tasks/:id", (req, res) => {
-  const id = req.params.id;
-  db.run("UPDATE tasks SET completed = 1 WHERE id = ?", [id], (err) => {
-    if (err) { console.log(err); return res.json({ success: false }); }
-    res.json({ success: true });
+  const port = Number(process.env.PORT || 3000);
+  serve({ fetch: app.fetch, port }, () => {
+    console.log(`TaskFlow running on http://localhost:${port}`);
+    scheduler.start();
   });
-});
+}
 
-// DELETE TASK
-app.delete("/tasks/:id", (req, res) => {
-  const id = req.params.id;
-  db.run("DELETE FROM tasks WHERE id = ?", [id], (err) => {
-    if (err) { console.log(err); return res.json({ success: false }); }
-    res.json({ success: true });
-  });
-});
+if (require.main === module) main();
 
-// START SERVER
-app.listen(PORT, () => {
-  console.log(`TaskFlow server running on http://localhost:${PORT}`);
-});
+module.exports = { verifyScrypt };
