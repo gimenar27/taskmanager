@@ -1,31 +1,31 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createApp } = require('../server');
-const { openDatabase } = require('../lib/db');
+const { createApp } = require('../lib/app');
+const { openNodeDatabase } = require('../lib/db-node');
 const auth = require('../lib/auth');
+const { verifyScrypt } = require('../server');
 
-function setup(startIso = '2026-10-14T15:59:00Z', overrides = {}) {
+async function setup(startIso = '2026-10-14T15:59:00Z', overrides = {}) {
   let clock = Date.parse(startIso);
   const pushes = [];
   const silent = { error() {}, log() {} };
-  const { app, db, scheduler } = createApp({
-    db: openDatabase(':memory:'),
+  const db = openNodeDatabase(':memory:');
+  const core = await createApp({
+    db,
     env: {},
-    mailer: null,
     now: () => clock,
     log: silent,
     sendPush: async (sub, payload) => { pushes.push({ endpoint: sub.endpoint, ...JSON.parse(payload) }); },
     ...overrides,
   });
-  const server = app.listen(0);
-  const base = `http://127.0.0.1:${server.address().port}/api`;
 
-  async function call(method, path, body, token) {
-    const res = await fetch(base + path, {
+  // Calls the API directly (no network), exactly like a request from the app.
+  async function call(method, path, body, token, headers = {}) {
+    const res = await core.app.fetch(new Request(`http://taskflow.test/api${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers },
       body: body ? JSON.stringify(body) : undefined,
-    });
+    }));
     const text = await res.text();
     let data; try { data = JSON.parse(text); } catch { data = text; }
     return { status: res.status, data };
@@ -38,14 +38,15 @@ function setup(startIso = '2026-10-14T15:59:00Z', overrides = {}) {
   }
 
   return {
-    call, signup, db, scheduler, pushes, base,
+    call, signup, db, pushes,
+    scheduler: { tick: core.tick },
     setClock: iso => { clock = Date.parse(iso); },
-    close: () => server.close(),
+    close: () => db.close(),
   };
 }
 
 test('sign up, log in, and reject bad passwords', async t => {
-  const s = setup(); t.after(s.close);
+  const s = await setup(); t.after(s.close);
   const token = await s.signup('Gimena', 'Gimena@Example.com');
   assert.ok(token);
   assert.equal((await s.call('POST', '/login', { email: 'gimena@example.com', password: 'nope' })).status, 401);
@@ -57,17 +58,17 @@ test('sign up, log in, and reject bad passwords', async t => {
 });
 
 test('old plain-text passwords still work and get upgraded', async t => {
-  const s = setup(); t.after(s.close);
+  const s = await setup(); t.after(s.close);
   s.db.prepare("INSERT INTO users (name, email, password) VALUES ('Old', 'old@example.com', 'hunter2')").run();
   const res = await s.call('POST', '/login', { email: 'old@example.com', password: 'hunter2' });
   assert.equal(res.status, 200);
   const row = s.db.prepare("SELECT password, password_hash FROM users WHERE email = 'old@example.com'").get();
   assert.equal(row.password, null);
-  assert.ok(auth.verifyPassword('hunter2', row.password_hash));
+  assert.ok(await auth.verifyPassword('hunter2', row.password_hash));
 });
 
 test('credit card reminder is pushed the day before and on the day at 9 AM local time', async t => {
-  const s = setup('2026-10-14T15:58:00Z'); t.after(s.close);   // 8:58 AM in Los Angeles
+  const s = await setup('2026-10-14T15:58:00Z'); t.after(s.close);   // 8:58 AM in Los Angeles
   const token = await s.signup('Gimena', 'g@example.com');
   const created = await s.call('POST', '/reminders', {
     title: 'Credit card', kind: 'bill', amount: '$250', repeat: 'monthly', start_date: '2026-10-15', time: '09:00', alerts: [1, 0],
@@ -92,7 +93,7 @@ test('credit card reminder is pushed the day before and on the day at 9 AM local
 });
 
 test('marking this month paid (from the notification button) skips the rest of this month', async t => {
-  const s = setup('2026-10-14T16:00:30Z'); t.after(s.close);
+  const s = await setup('2026-10-14T16:00:30Z'); t.after(s.close);
   const token = await s.signup('Gimena', 'g@example.com');
   await s.call('POST', '/reminders', { title: 'Visa', kind: 'bill', repeat: 'monthly', start_date: '2026-10-15', alerts: [1, 0] }, token);
   await s.scheduler.tick();
@@ -116,7 +117,7 @@ test('marking this month paid (from the notification button) skips the rest of t
 });
 
 test('to-do nags N times a day until done', async t => {
-  const s = setup('2026-09-27T15:00:00Z'); t.after(s.close);   // 8 AM LA
+  const s = await setup('2026-09-27T15:00:00Z'); t.after(s.close);   // 8 AM LA
   const token = await s.signup('Gimena', 'g@example.com');
   const { data } = await s.call('POST', '/reminders', { title: 'Finish essay', nag_per_day: 3, nag_start: '09:00', nag_end: '21:00' }, token);
   assert.equal(data.reminder.nag_from, '2026-09-27');
@@ -134,7 +135,7 @@ test('to-do nags N times a day until done', async t => {
 });
 
 test('sharing: both people get notified, invites become shares on sign-up', async t => {
-  const s = setup('2026-10-14T15:00:00Z'); t.after(s.close);
+  const s = await setup('2026-10-14T15:00:00Z'); t.after(s.close);
   const me = await s.signup('Gimena', 'g@example.com');
   const ryan = await s.signup('Ryan', 'ryan@example.com');
   const { data } = await s.call('POST', '/reminders', {
@@ -166,7 +167,7 @@ test('sharing: both people get notified, invites become shares on sign-up', asyn
 });
 
 test('people cannot see or change reminders that are not theirs', async t => {
-  const s = setup(); t.after(s.close);
+  const s = await setup(); t.after(s.close);
   const me = await s.signup('Gimena', 'g@example.com');
   const other = await s.signup('Other', 'o@example.com');
   const { data } = await s.call('POST', '/reminders', { title: 'Private' }, me);
@@ -176,7 +177,7 @@ test('people cannot see or change reminders that are not theirs', async t => {
 });
 
 test('validation and calendar export', async t => {
-  const s = setup(); t.after(s.close);
+  const s = await setup(); t.after(s.close);
   const me = await s.signup('Gimena', 'g@example.com');
   assert.equal((await s.call('POST', '/reminders', { title: '' }, me)).status, 400);
   assert.equal((await s.call('POST', '/reminders', { title: 'x', repeat: 'monthly' }, me)).status, 400);
@@ -191,7 +192,7 @@ test('validation and calendar export', async t => {
 });
 
 test('snooze sends the reminder again later', async t => {
-  const s = setup('2026-10-14T16:00:00Z'); t.after(s.close);
+  const s = await setup('2026-10-14T16:00:00Z'); t.after(s.close);
   const me = await s.signup('Gimena', 'g@example.com');
   const { data } = await s.call('POST', '/reminders', { title: 'Call mom' }, me);
   await s.call('POST', `/reminders/${data.reminder.id}/snooze`, { minutes: 60 }, me);
@@ -213,44 +214,41 @@ test('tasks from the first version of the app are carried over', () => {
     INSERT INTO users (name, email, password) VALUES ('G', 'g@x.com', 'pw');
     INSERT INTO tasks (user_id, title, desc, priority, reminder, due_date, completed) VALUES (1, 'card', 'pay it', 'High', 'daily', '2026-05-06', 0);`);
   old.close();
-  const db = openDatabase(file);
+  const db = openNodeDatabase(file);
   const rows = db.prepare('SELECT * FROM reminders').all();
   assert.equal(rows.length, 1);
   assert.equal(rows[0].title, 'card');
   assert.equal(rows[0].start_date, '2026-05-06');
-  openDatabase(file); // running again must not duplicate
+  openNodeDatabase(file); // running again must not duplicate
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM reminders').get().n, 1);
 });
 
 test('real Web Push request to an iPhone: payload decrypts and the VAPID signature verifies', async t => {
   const crypto = require('crypto');
-  const webpush = require('web-push');
   // Keys a phone's browser would create for its subscription.
   const phone = crypto.createECDH('prime256v1');
   phone.generateKeys();
   const phonePublic = phone.getPublicKey();
   const authSecret = crypto.randomBytes(16);
   const requests = [];
-  const s = setup('2026-10-14T16:00:30Z', {
-    sendPush: async (sub, payload, options) => { requests.push(webpush.generateRequestDetails(sub, payload, options)); },
+  // Use the real sender, but capture the HTTPS request instead of sending it to Apple.
+  const s = await setup('2026-10-14T16:00:30Z', {
+    sendPush: undefined,
+    fetch: async (url, init) => { requests.push({ url, ...init }); return new Response(null, { status: 201 }); },
   });
   t.after(s.close);
 
   const { data: { token } } = await s.call('POST', '/signup', { name: 'G', email: 'g@example.com', password: 'secret123', timezone: 'America/Los_Angeles' });
   // The phone reaches the app through the host's https proxy.
-  await fetch(s.base + '/push/subscribe', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'taskflow-demo.up.railway.app' },
-    body: JSON.stringify({ subscription: {
-      endpoint: 'https://web.push.apple.com/QGxyz-device-token',
-      keys: { p256dh: phonePublic.toString('base64url'), auth: authSecret.toString('base64url') },
-    } }),
-  });
+  await s.call('POST', '/push/subscribe', { subscription: {
+    endpoint: 'https://web.push.apple.com/QGxyz-device-token',
+    keys: { p256dh: phonePublic.toString('base64url'), auth: authSecret.toString('base64url') },
+  } }, token, { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'taskflow-demo.up.railway.app' });
   await s.call('POST', '/reminders', { title: 'Credit card', kind: 'bill', amount: '$250', repeat: 'monthly', start_date: '2026-10-15', alerts: [1] }, token);
   await s.scheduler.tick();
   assert.equal(requests.length, 1);
   const req = requests[0];
-  assert.equal(req.endpoint, 'https://web.push.apple.com/QGxyz-device-token');
+  assert.equal(req.url, 'https://web.push.apple.com/QGxyz-device-token');
   assert.equal(req.headers['Content-Encoding'], 'aes128gcm');
 
   // VAPID: signed by the server's key, for Apple's push service.
@@ -266,7 +264,7 @@ test('real Web Push request to an iPhone: payload decrypts and the VAPID signatu
   assert.equal(claims.sub, 'https://taskflow-demo.up.railway.app', 'Apple needs a real https/mailto subject');
 
   // Decrypt exactly like the phone does (RFC 8291).
-  const body = req.body;
+  const body = Buffer.from(req.body);
   const salt = body.subarray(0, 16);
   const idLen = body[20];
   const serverPublic = body.subarray(21, 21 + idLen);
@@ -283,4 +281,29 @@ test('real Web Push request to an iPhone: payload decrypts and the VAPID signatu
   assert.equal(message.body, 'Due tomorrow · $250');
   assert.match(message.url, /^\/\?item=\d+$/);
   assert.ok(message.token);
+});
+
+test('accounts from the earlier scrypt format still log in and get upgraded', async t => {
+  const crypto = require('crypto');
+  const s = await setup('2026-10-14T16:00:00Z', { verifyLegacyHash: verifyScrypt });
+  t.after(s.close);
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync('oldpass1', salt, 32, { N: 16384, r: 8, p: 1 });
+  s.db.prepare("INSERT INTO users (name, email, password_hash) VALUES ('Early', 'early@example.com', ?)")
+    .run(`scrypt$${salt.toString('base64')}$${hash.toString('base64')}`);
+  assert.equal((await s.call('POST', '/login', { email: 'early@example.com', password: 'wrong' })).status, 401);
+  assert.equal((await s.call('POST', '/login', { email: 'early@example.com', password: 'oldpass1' })).status, 200);
+  const row = s.db.prepare("SELECT password_hash FROM users WHERE email = 'early@example.com'").get();
+  assert.match(row.password_hash, /^pbkdf2\$/);
+  assert.equal((await s.call('POST', '/login', { email: 'early@example.com', password: 'oldpass1' })).status, 200);
+});
+
+test('invites can be cancelled', async t => {
+  const s = await setup();
+  t.after(s.close);
+  const me = await s.signup('Gimena', 'g@example.com');
+  const { data } = await s.call('POST', '/reminders', { title: 'Rent', share_with: ['mom@example.com'] }, me);
+  assert.deepEqual(data.reminder.invites, ['mom@example.com']);
+  const res = await s.call('DELETE', `/reminders/${data.reminder.id}/invites/${encodeURIComponent('mom@example.com')}`, null, me);
+  assert.deepEqual(res.data.reminder.invites, []);
 });

@@ -8,6 +8,8 @@
     "start": "node --env-file-if-exists=.env server.js",
     "dev": "node --env-file-if-exists=.env --watch server.js",
     "test": "node --test \"test/*.test.js\"",
+    "cf:dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "icons": "python3 scripts/make_icons.py"
   },
   "engines": {
@@ -16,8 +18,11 @@
   "author": "Gimena Rios Moreno",
   "license": "ISC",
   "dependencies": {
-    "express": "^5.2.1",
-    "nodemailer": "^10.0.11",
-    "web-push": "^3.6.7"
+    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.9",
+    "nodemailer": "^10.0.11"
+  },
+  "devDependencies": {
+    "wrangler": "^4.142.0"
   }
 }

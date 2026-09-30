@@ -1,29 +1,54 @@
 # Put TaskFlow online
 
-Your phone needs to reach TaskFlow at a public `https://` address, and the server has to run around the clock so reminders go out even when your computer is off.
+Your phone needs to reach TaskFlow at a public `https://` address, and something has to be awake to send reminders even when nobody has the app open.
 
-## Recommended: Railway (about 10 minutes)
+## Free: Cloudflare (recommended)
 
-**Cost:** free for the first 30 days (a $5 trial credit, no card needed), then the Hobby plan at $5/month. TaskFlow uses much less than the $5 of usage that plan includes.
+TaskFlow runs on Cloudflare's **free Workers plan**, with no credit card. The app's files are served by Cloudflare, and a single Durable Object holds the database and **wakes itself up every minute** with an alarm to send whatever is due, then goes back to sleep. The free limits (100,000 requests a day) are far more than a few people use.
 
-1. Go to [railway.com](https://railway.com) and **sign in with GitHub**.
-2. Click **New Project → Deploy from GitHub repo** and choose **gimenar27/taskmanager**.
-   If the new version isn't merged into `main` yet, open the service → **Settings → Source** and set the branch to **`mobile-app`**.
-3. Railway finds the `Dockerfile` and builds the app. Wait for it to say **Active**.
-4. **Add a disk** so your data survives restarts: right-click the service (or press ⌘K) → **Attach Volume**, and set the mount path to **`/data`**.
-5. **Settings → Networking → Generate Domain.** You'll get an address like `https://taskmanager-production.up.railway.app`.
-6. Optional, under **Variables**: `VAPID_SUBJECT` = `mailto:your-email@gmail.com` and `APP_URL` = the address from step 5.
-7. Open that address on your phone and follow **“Put it on your phone”** in the [README](README.md).
+**First time**
 
-After that, every push to that branch on GitHub redeploys automatically.
+1. Create a free account at [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up).
+2. In this folder, install everything and connect your account (a browser page opens; click **Allow**):
 
-## Other hosts
+   ```bash
+   npm install
+   ```
 
-Anything that runs a Docker container with a persistent disk works (Fly.io, Render with a disk, your own server): mount the disk at `/data` and expose port `3000`.
+   ```bash
+   npx wrangler login
+   ```
 
-Free plans that go to sleep or wipe the disk (like Render's free tier) don't work well here: reminders need the server awake, and the database needs a disk that sticks around.
+3. Publish:
 
-## Try it on your phone before hosting
+   ```bash
+   npm run deploy
+   ```
+
+   It prints your address, like `https://taskflow.<your-subdomain>.workers.dev`.
+   On a brand-new account, Cloudflare first needs a `workers.dev` subdomain. If the deploy stops and says the name is taken, open the link it prints, choose any free name, and run `npm run deploy` again.
+
+4. Open the address on your phone and follow **“Put it on your phone”** in the [README](README.md).
+
+**Updating:** run `npm run deploy` again. Your data stays.
+
+**Optional:** give push services a contact address (otherwise the app's own address is used):
+
+```bash
+npx wrangler secret put VAPID_SUBJECT
+```
+
+(enter something like `mailto:you@gmail.com`).
+
+Emailing invites and reminders only works on the Node version below. On Cloudflare, sharing still works; the other person just signs up with the email you shared with.
+
+**Watch it work:** `npx wrangler tail` shows live logs, including the once-a-minute `Alarm … Ok`.
+
+## Other hosts (Node)
+
+The same app also runs as a normal Node server (`npm start`), which includes optional email. Anything that runs a Docker container with a persistent disk works, like Railway, Fly.io or your own server. Mount the disk at `/data` and expose port `3000`. Free plans that sleep or wipe the disk don't work for this version, because it checks for due reminders from inside the running server.
+
+## Try it on your phone from your Mac
 
 While your Mac is on, you can get a temporary https address:
 
@@ -39,8 +64,4 @@ brew install cloudflared
 cloudflared tunnel --url http://localhost:3000
 ```
 
-Cloudflare prints an address like `https://something-random.trycloudflare.com` that works on your phone. It stops when you close the terminal or your Mac sleeps, and it changes every time. Once you move to a permanent host, remove the old icon and add TaskFlow to your Home Screen again from the new address.
-
-## Bringing your data along
-
-The database is a single file, `data/taskflow.db`. The simplest path is to sign up again on the hosted version. To keep what you have, copy that file onto the host's `/data` disk before the first start.
+Cloudflare prints an address like `https://something-random.trycloudflare.com`. It stops when you close the terminal or your Mac sleeps, and it changes every time.

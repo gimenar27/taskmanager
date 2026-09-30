@@ -30,7 +30,7 @@ npm test
 
 ## Put it on your phone
 
-Your phone needs to reach TaskFlow at an `https://` address, so the server has to be online (see **[DEPLOY.md](DEPLOY.md)**). Once it is:
+Your phone needs to reach TaskFlow at an `https://` address, so it has to be online. It runs **free on Cloudflare** (`npm run deploy`, see **[DEPLOY.md](DEPLOY.md)**). Once it is:
 
 **iPhone** (iOS 16.4 or newer)
 1. Open the TaskFlow address in **Safari**.
@@ -48,12 +48,15 @@ On a computer you can go to **Me → Add TaskFlow to your phone** to get a QR co
 
 | Piece | What it does |
 | --- | --- |
-| `server.js` | Express API: accounts, reminders, sharing, push subscriptions, calendar links. Serves the app from `public/`. |
-| `lib/scheduler.js` | Every 30 seconds, works out which reminders are due for each person (in their own time zone) and sends them. Each notification is sent once. |
+| `lib/app.js`, `lib/routes/` | The API (built with [Hono](https://hono.dev)): accounts, reminders, sharing, push subscriptions, calendar links. The same code runs on Cloudflare and on Node. |
+| `worker.js` | Cloudflare entry point. One Durable Object holds the database and uses an alarm to wake up every minute and send due reminders. |
+| `server.js` | Node entry point (`npm start`) for running on your computer or a normal server. |
+| `lib/scheduler.js` | Works out which reminders are due for each person (in their own time zone) and sends them. Each notification is sent once. |
 | `public/js/schedule.js` | The reminder rules: repeats, “day before” alerts, “N times a day” nudges. Shared by the server and the app, so what the app previews is exactly what gets sent. |
+| `lib/webpush.js` | Encrypts and signs push notifications (Web Push) using the Web Crypto API. |
 | `public/js/app.js` | The phone app (plain JavaScript, no build step). |
 | `public/sw.js` | Service worker: receives push notifications, handles the notification buttons, and lets the app open offline. |
-| `lib/db.js` | SQLite database (built into Node) in `data/taskflow.db`. Tasks from the first version of TaskFlow are copied over automatically. |
+| `lib/schema.js` | The SQLite tables: Cloudflare's built-in SQLite, or Node's in `data/taskflow.db`. Tasks from the first version of TaskFlow are copied over automatically on Node. |
 
 Notifications use the standard [Web Push](https://developer.mozilla.org/docs/Web/API/Push_API) protocol, which Apple and Google both support for Home Screen apps. The signing keys are created on first start and stored in the database.
 
@@ -67,11 +70,11 @@ All optional. Copy `.env.example` to `.env` for local use, or add them in your h
 | `PORT` | Port to listen on (default 3000). |
 | `APP_URL` | The public `https://` address, used in invite emails. |
 | `VAPID_SUBJECT` | Contact for push services, e.g. `mailto:you@gmail.com`. If unset, the app's own https address is used. |
-| `SMTP_USER`, `SMTP_PASS` | Gmail address + [app password](https://myaccount.google.com/apppasswords) to send share invites (and email reminders for people who turn them on). |
+| `SMTP_USER`, `SMTP_PASS` | Node version only: Gmail address + [app password](https://myaccount.google.com/apppasswords) to send share invites (and email reminders for people who turn them on). |
 
 ## Security notes
 
-- Passwords are hashed (scrypt). Accounts from the first version are upgraded the next time they log in.
+- Passwords are hashed (PBKDF2). Accounts from the first version are upgraded the next time they log in.
 - Every request checks that you own the reminder or it's shared with you.
 - Secrets live in environment variables, never in the code.
 
