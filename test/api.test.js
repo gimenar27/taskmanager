@@ -307,3 +307,27 @@ test('invites can be cancelled', async t => {
   const res = await s.call('DELETE', `/reminders/${data.reminder.id}/invites/${encodeURIComponent('mom@example.com')}`, null, me);
   assert.deepEqual(res.data.reminder.invites, []);
 });
+
+test('Spanish: notifications, buttons and messages follow each person’s language', async t => {
+  const s = await setup('2026-10-14T15:59:00Z');
+  t.after(s.close);
+  const bad = await s.call('POST', '/signup', { name: 'Ana', email: 'nope', password: 'secret123' }, null, { 'X-Lang': 'es' });
+  assert.equal(bad.data.error, 'Ese correo no parece correcto.');
+
+  const { data } = await s.call('POST', '/signup', { name: 'Ana', email: 'ana@example.com', password: 'secret123', timezone: 'America/Los_Angeles', language: 'es' });
+  assert.equal(data.user.language, 'es');
+  const token = data.token;
+  await s.call('POST', '/push/subscribe', { subscription: { endpoint: 'https://push.example/ana', keys: { p256dh: 'k', auth: 'a' } } }, token);
+  assert.equal((await s.call('POST', '/reminders', { title: '' }, token)).data.error, 'Ponle un nombre.');
+  await s.call('POST', '/reminders', { title: 'Tarjeta', kind: 'bill', amount: '$250', repeat: 'monthly', start_date: '2026-10-15', alerts: [1] }, token);
+
+  s.setClock('2026-10-14T16:00:30Z');
+  await s.scheduler.tick();
+  assert.equal(s.pushes.length, 1);
+  assert.equal(s.pushes[0].body, 'Vence mañana · $250');
+  assert.deepEqual(s.pushes[0].actions.map(a => a.title), ['✓ Hecho', '⏰ En 1 hora']);
+
+  const me = await s.call('PATCH', '/me', { language: 'en' }, token);
+  assert.equal(me.data.user.language, 'en');
+  assert.equal((await s.call('POST', '/reminders', { title: '' }, token)).data.error, 'Please give it a name.');
+});

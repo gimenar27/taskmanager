@@ -3,7 +3,11 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 OUT = Path(__file__).resolve().parent.parent / "public" / "icons"
-TOP, BOTTOM = (246, 173, 107), (231, 111, 81)
+THEMES = {
+    "": ((246, 173, 107), (231, 111, 81)),          # peach
+    "-matcha": ((168, 201, 132), (104, 148, 76)),   # matcha green
+}
+TOP, BOTTOM = THEMES[""]
 SS = 4  # draw big, then shrink, for smooth edges
 
 
@@ -53,12 +57,14 @@ def badge(size):
 
 
 def main():
+    global TOP, BOTTOM
     OUT.mkdir(parents=True, exist_ok=True)
-    icon(192, rounded=True).save(OUT / "icon-192.png")
-    icon(512, rounded=True).save(OUT / "icon-512.png")
-    icon(512, scale=0.78).save(OUT / "maskable-512.png")
-    icon(180).convert("RGB").save(OUT / "apple-touch-icon.png")  # iPhone rounds the corners itself
-    icon(64, rounded=True).resize((32, 32), Image.LANCZOS).save(OUT / "favicon-32.png")
+    for suffix, (TOP, BOTTOM) in THEMES.items():
+        icon(192, rounded=True).save(OUT / f"icon-192{suffix}.png")
+        icon(512, rounded=True).save(OUT / f"icon-512{suffix}.png")
+        icon(512, scale=0.78).save(OUT / f"maskable-512{suffix}.png")
+        icon(180).convert("RGB").save(OUT / f"apple-touch-icon{suffix}.png")  # iPhone rounds the corners itself
+        icon(64, rounded=True).resize((32, 32), Image.LANCZOS).save(OUT / f"favicon-32{suffix}.png")
     badge(96).save(OUT / "badge-96.png")
     print("Icons written to", OUT)
 

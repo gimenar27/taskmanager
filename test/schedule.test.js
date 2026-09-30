@@ -109,3 +109,23 @@ test('time zones: 9 AM in Los Angeles, including across daylight saving', () => 
   assert.equal(todayIn('America/Los_Angeles', Date.parse('2026-09-28T05:00:00Z')), '2026-09-27');
   assert.equal(todayIn('Asia/Tokyo', Date.parse('2026-09-28T05:00:00Z')), '2026-09-28');
 });
+
+test('Spanish wording for dates, repeats, alerts and notifications', () => {
+  assert.equal(S.formatDate('2026-10-15', true, 'es'), 'jue, 15 oct');
+  assert.equal(S.formatTime('09:00', 'es'), '9 a. m.');
+  assert.equal(S.formatTime('13:30', 'es'), '1:30 p. m.');
+  assert.equal(S.atTime('13:00', 'es'), 'a la 1 p. m.');
+  assert.equal(S.relativeDay('2026-10-16', '2026-10-15', 'es'), 'mañana');
+  assert.equal(S.relativeDay('2026-10-19', '2026-10-15', 'es'), 'el lunes');
+  assert.equal(S.repeatSummary({ repeat: 'monthly', start_date: '2026-10-15' }, 'es'), 'Cada mes el día 15');
+  assert.equal(S.repeatSummary({ repeat: 'weekly', start_date: '2026-10-17' }, 'es'), 'Todos los sábados');
+  assert.equal(S.repeatSummary({ repeat: 'yearly', start_date: '2026-10-15' }, 'es'), 'Cada año el 15 de octubre');
+  assert.equal(S.alertSummary({ start_date: '2026-10-15', alerts: [0, 1], time: '09:00' }, 'es'), '1 día antes y el mismo día a las 9 a. m.');
+  assert.equal(S.alertSummary({ nag_per_day: 3, nag_start: '09:00', nag_end: '21:00' }, 'es'), '3 veces al día (9 a. m.–9 p. m.) hasta terminar');
+  assert.equal(S.kindLabel('bill', 'es'), 'Pago');
+  const card = { title: 'Visa', kind: 'bill', amount: '$250' };
+  assert.equal(S.describeFire(card, { type: 'alert', offset: 1, occ: '2026-10-15' }, '2026-10-14', 'es').body, 'Vence mañana · $250');
+  assert.equal(S.describeFire(card, { type: 'alert', offset: 3, occ: '2026-10-15' }, '2026-10-12', 'es').body, 'Vence en 3 días (jue, 15 oct) · $250');
+  assert.equal(S.describeFire(card, { type: 'nag', n: 1, of: 2, occ: '2026-10-15', date: '2026-10-15' }, '2026-10-15', 'es').body,
+    'Recordatorio 1 de 2 de hoy. Tócalo cuando esté hecho.');
+});

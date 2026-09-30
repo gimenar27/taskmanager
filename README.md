@@ -9,6 +9,8 @@ TaskFlow installs on iPhone and Android as an app on your Home Screen (a Progres
 - **💳 Bills that repeat.** Add your credit card once (“due the 15th, every month”) and get reminded **1 day before** and **on the day**, every month. You can also add 2 days, 3 days or 1 week before. Tap **Mark paid** and the rest of that month's reminders stop; next month's still come.
 - **🔔 Nudges until it's done.** For things you need to finish, choose **how many reminders a day** (1–12) and the hours (e.g. 3× a day between 9 AM and 9 PM). TaskFlow keeps nudging every day until you check it off.
 - **🤝 Share with people.** Share any reminder by email. Everyone on it gets the same notifications and anyone can check it off. If they don't have an account yet, they get it as soon as they sign up with that email.
+- **🌎 English or Spanish.** Switch on the sign-in screen or in Me › Language; notifications arrive in each person's language.
+- **🍵 Matcha or 🍑 Peach.** Light matcha green by default, with a soft wavy header; dark mode works with both.
 - **Also:** daily/weekly/monthly/yearly repeats, a calendar view, snooze (1 hour, 3 hours, tomorrow), “Done” and “In 1 hour” buttons right on the notification (Android/desktop), add-to-Calendar (.ics) links, dark mode, and the assistant that breaks a goal into to-dos.
 
 ## Run it on your computer
@@ -54,7 +56,8 @@ On a computer you can go to **Me → Add TaskFlow to your phone** to get a QR co
 | `lib/scheduler.js` | Works out which reminders are due for each person (in their own time zone) and sends them. Each notification is sent once. |
 | `public/js/schedule.js` | The reminder rules: repeats, “day before” alerts, “N times a day” nudges. Shared by the server and the app, so what the app previews is exactly what gets sent. |
 | `lib/webpush.js` | Encrypts and signs push notifications (Web Push) using the Web Crypto API. |
-| `public/js/app.js` | The phone app (plain JavaScript, no build step). |
+| `public/js/app/` | The phone app in four plain-JavaScript files (no build step): core, screens, sheets, startup. |
+| `public/js/i18n.js`, `lib/messages.js` | All text in English and Spanish (app screens and server messages). |
 | `public/sw.js` | Service worker: receives push notifications, handles the notification buttons, and lets the app open offline. |
 | `lib/schema.js` | The SQLite tables: Cloudflare's built-in SQLite, or Node's in `data/taskflow.db`. Tasks from the first version of TaskFlow are copied over automatically on Node. |
 

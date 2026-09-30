@@ -14,19 +14,29 @@
   const DAY_MS = 86400000;
   const REPEATS = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
   const KINDS = {
-    task:   { icon: '✅', label: 'To-do' },
-    bill:   { icon: '💳', label: 'Bill' },
-    repeat: { icon: '🔁', label: 'Repeating' },
+    task:   { icon: '✅', label: 'To-do', es: 'Tarea' },
+    bill:   { icon: '💳', label: 'Bill', es: 'Pago' },
+    repeat: { icon: '🔁', label: 'Repeating', es: 'Recurrente' },
   };
   const ALERT_OPTIONS = [
-    { value: 7, label: '1 week before' },
-    { value: 3, label: '3 days before' },
-    { value: 2, label: '2 days before' },
-    { value: 1, label: '1 day before' },
-    { value: 0, label: 'On the day' },
+    { value: 7, label: '1 week before', es: '1 semana antes' },
+    { value: 3, label: '3 days before', es: '3 días antes' },
+    { value: 2, label: '2 days before', es: '2 días antes' },
+    { value: 1, label: '1 day before', es: '1 día antes' },
+    { value: 0, label: 'On the day', es: 'El mismo día' },
   ];
-  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const WORDS = {
+    en: {
+      months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+      weekdays: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+    },
+    es: {
+      months: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'],
+      monthsLong: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],
+      weekdays: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'],
+    },
+  };
+  const langOf = lang => (lang === 'es' ? 'es' : 'en');
 
   // ─── date helpers ───
   function toDay(ymd) {
@@ -227,89 +237,112 @@
     return [];
   }
 
-  // ─── human-friendly text ───
+  // ─── human-friendly text (English or Spanish) ───
   function ordinal(n) {
-    const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    const suffixes = ['th', 'st', 'nd', 'rd'], v = n % 100;
+    return n + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
   }
-  function formatTime(hm) {
-    const min = toMinutes(hm);
-    const h = Math.floor(min / 60), m = min % 60;
-    const ampm = h < 12 ? 'AM' : 'PM';
-    const h12 = h % 12 === 0 ? 12 : h % 12;
-    return m ? `${h12}:${String(m).padStart(2, '0')} ${ampm}` : `${h12} ${ampm}`;
-  }
-  function formatDate(ymd, withWeekday) {
-    const p = parts(toDay(ymd));
-    const base = `${MONTHS[p.m]} ${p.d}`;
-    return withWeekday ? `${WEEKDAYS[p.wd].slice(0, 3)}, ${base}` : base;
-  }
-  function relativeDay(ymd, todayYMD) {
-    const diff = toDay(ymd) - toDay(todayYMD);
-    if (diff === 0) return 'today';
-    if (diff === 1) return 'tomorrow';
-    if (diff === -1) return 'yesterday';
-    if (diff > 1 && diff < 7) return 'on ' + WEEKDAYS[parts(toDay(ymd)).wd];
-    if (diff < -1) return `${-diff} days ago`;
-    return 'on ' + formatDate(ymd);
+  function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
+  function joinWords(list, lang) {
+    if (list.length <= 1) return list.join('');
+    return list.slice(0, -1).join(', ') + (langOf(lang) === 'es' ? ' y ' : ' and ') + list[list.length - 1];
   }
 
-  function repeatSummary(r) {
+  function kindLabel(kind, lang) {
+    const k = KINDS[kind] || KINDS.task;
+    return langOf(lang) === 'es' ? k.es : k.label;
+  }
+  function alertLabel(value, lang) {
+    const opt = ALERT_OPTIONS.find(o => o.value === value);
+    if (langOf(lang) === 'es') return opt ? opt.es : `${value} días antes`;
+    return opt ? opt.label : `${value} days before`;
+  }
+
+  function formatTime(hm, lang) {
+    const min = toMinutes(hm);
+    const h = Math.floor(min / 60), m = min % 60;
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    const suffix = langOf(lang) === 'es' ? (h < 12 ? 'a. m.' : 'p. m.') : (h < 12 ? 'AM' : 'PM');
+    return m ? `${h12}:${String(m).padStart(2, '0')} ${suffix}` : `${h12} ${suffix}`;
+  }
+  // "at 9 AM" / "a las 9 a. m." (Spanish says "a la 1").
+  function atTime(hm, lang) {
+    if (langOf(lang) !== 'es') return `at ${formatTime(hm, lang)}`;
+    const h12 = Math.floor(toMinutes(hm) / 60) % 12 || 12;
+    return `${h12 === 1 ? 'a la' : 'a las'} ${formatTime(hm, lang)}`;
+  }
+  function formatDate(ymd, withWeekday, lang) {
+    const w = WORDS[langOf(lang)];
+    const p = parts(toDay(ymd));
+    const base = langOf(lang) === 'es' ? `${p.d} ${w.months[p.m]}` : `${w.months[p.m]} ${p.d}`;
+    return withWeekday ? `${w.weekdays[p.wd].slice(0, 3)}, ${base}` : base;
+  }
+  function relativeDay(ymd, todayYMD, lang) {
+    const es = langOf(lang) === 'es';
+    const diff = toDay(ymd) - toDay(todayYMD);
+    const weekday = WORDS[langOf(lang)].weekdays[parts(toDay(ymd)).wd];
+    if (diff === 0) return es ? 'hoy' : 'today';
+    if (diff === 1) return es ? 'mañana' : 'tomorrow';
+    if (diff === -1) return es ? 'ayer' : 'yesterday';
+    if (diff > 1 && diff < 7) return es ? `el ${weekday}` : `on ${weekday}`;
+    if (diff < -1) return es ? `hace ${-diff} días` : `${-diff} days ago`;
+    return `${es ? 'el' : 'on'} ${formatDate(ymd, false, lang)}`;
+  }
+
+  function repeatSummary(r, lang) {
     if (!isRepeating(r)) return '';
+    const es = langOf(lang) === 'es';
+    const w = WORDS[langOf(lang)];
     const p = parts(toDay(r.start_date));
+    const day = w.weekdays[p.wd];
     switch (r.repeat) {
-      case 'daily': return 'Every day';
-      case 'weekly': return 'Every ' + WEEKDAYS[p.wd];
-      case 'monthly': return `Every month on the ${ordinal(p.d)}`;
-      case 'yearly': return `Every year on ${MONTHS[p.m]} ${p.d}`;
+      case 'daily': return es ? 'Todos los días' : 'Every day';
+      case 'weekly': return es ? `Todos los ${day.endsWith('s') ? day : day + 's'}` : `Every ${day}`;
+      case 'monthly': return es ? `Cada mes el día ${p.d}` : `Every month on the ${ordinal(p.d)}`;
+      case 'yearly': return es ? `Cada año el ${p.d} de ${w.monthsLong[p.m]}` : `Every year on ${w.months[p.m]} ${p.d}`;
     }
     return '';
   }
 
-  function alertSummary(r) {
+  function alertSummary(r, lang) {
+    const es = langOf(lang) === 'es';
     const alerts = (Array.isArray(r.alerts) ? r.alerts : []).slice().sort((a, b) => b - a);
     const bits = [];
     if (r.start_date && alerts.length) {
-      const labels = alerts.map(a => {
-        const opt = ALERT_OPTIONS.find(o => o.value === a);
-        return opt ? opt.label.toLowerCase() : `${a} days before`;
-      });
-      bits.push(`${joinWords(labels)} at ${formatTime(r.time || '09:00')}`);
+      bits.push(`${joinWords(alerts.map(a => alertLabel(a, lang).toLowerCase()), lang)} ${atTime(r.time || '09:00', lang)}`);
     }
     const nags = nagTimes(r);
     if (nags.length) {
-      const span = nags.length === 1
-        ? `at ${formatTime(nags[0])}`
-        : `${formatTime(nags[0])}–${formatTime(nags[nags.length - 1])}`;
-      bits.push(`${nags.length}× a day (${span}) until done`);
+      const span = nags.length === 1 ? atTime(nags[0], lang) : `${formatTime(nags[0], lang)}–${formatTime(nags[nags.length - 1], lang)}`;
+      bits.push(es
+        ? `${nags.length} ${nags.length === 1 ? 'vez' : 'veces'} al día (${span}) hasta terminar`
+        : `${nags.length}× a day (${span}) until done`);
     }
-    return bits.length ? capitalize(bits.join(', plus ')) : 'No notifications';
+    if (!bits.length) return es ? 'Sin notificaciones' : 'No notifications';
+    return capitalize(bits.join(es ? ', y además ' : ', plus '));
   }
-
-  function joinWords(list) {
-    if (list.length <= 1) return list.join('');
-    return list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
-  }
-  function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
 
   /** Notification title + body for one fire (used by the server's push sender and the app preview). */
-  function describeFire(r, f, todayYMD) {
+  function describeFire(r, f, todayYMD, lang) {
+    const es = langOf(lang) === 'es';
     const kind = KINDS[r.kind] || KINDS.task;
     const title = `${kind.icon} ${r.title}`;
     const amount = r.amount ? ` · ${r.amount}` : '';
     let body;
     if (f.type === 'alert') {
-      if (f.offset === 0) body = r.kind === 'bill' ? 'Due today' : 'Today';
-      else if (f.offset === 1) body = 'Due tomorrow';
-      else if (f.offset === 7) body = 'Due in 1 week';
-      else body = `Due in ${f.offset} days`;
-      if (f.offset > 1) body += ` (${formatDate(f.occ, true)})`;
+      if (f.offset === 0) body = r.kind === 'bill' ? (es ? 'Vence hoy' : 'Due today') : (es ? 'Hoy' : 'Today');
+      else if (f.offset === 1) body = es ? 'Vence mañana' : 'Due tomorrow';
+      else if (f.offset === 7) body = es ? 'Vence en 1 semana' : 'Due in 1 week';
+      else body = es ? `Vence en ${f.offset} días` : `Due in ${f.offset} days`;
+      if (f.offset > 1) body += ` (${formatDate(f.occ, true, lang)})`;
       body += amount;
     } else if (f.type === 'nag') {
       const overdue = f.occ && f.occ < (todayYMD || f.date);
-      body = `${overdue ? 'Overdue — ' : ''}Reminder ${f.n} of ${f.of} today. Tap when it's done.`;
+      body = es
+        ? `${overdue ? 'Atrasado — ' : ''}Recordatorio ${f.n} de ${f.of} de hoy. Tócalo cuando esté hecho.`
+        : `${overdue ? 'Overdue — ' : ''}Reminder ${f.n} of ${f.of} today. Tap when it's done.`;
     } else {
-      body = `Snoozed reminder${amount}`;
+      body = (es ? 'Recordatorio pospuesto' : 'Snoozed reminder') + amount;
     }
     return { title, body };
   }
@@ -320,5 +353,6 @@
     isRepeating, nthOccurrence, currentOccurrence, previousOccurrence, occurrencesBetween, status,
     nagTimes, fireTimes, upcoming,
     formatTime, formatDate, relativeDay, repeatSummary, alertSummary, describeFire, ordinal,
+    kindLabel, alertLabel, atTime,
   };
 });

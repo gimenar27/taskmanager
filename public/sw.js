@@ -1,8 +1,9 @@
 // TaskFlow service worker: shows push notifications and keeps the app opening offline.
-const CACHE = 'taskflow-v2.0.0';
+const CACHE = 'taskflow-v2.1.0';
 const SHELL = [
-  '/', '/css/app.css', '/js/app.js', '/js/schedule.js', '/js/assistant.js',
-  '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png',
+  '/', '/css/app.css', '/js/i18n.js', '/js/schedule.js', '/js/assistant.js',
+  '/js/app/core.js', '/js/app/views.js', '/js/app/sheets.js', '/js/app/main.js',
+  '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-192-matcha.png', '/icons/badge-96.png',
 ];
 
 self.addEventListener('install', event => {
@@ -52,7 +53,8 @@ self.addEventListener('push', event => {
     timestamp: Date.now(),
   };
   // Buttons show up on Android and desktop; on iPhone, tapping opens the reminder instead.
-  if (data.token) options.actions = [{ action: 'done', title: '✓ Done' }, { action: 'snooze', title: '⏰ In 1 hour' }];
+  // The server sends their labels in the person's language.
+  if (data.token) options.actions = data.actions || [{ action: 'done', title: '✓ Done' }, { action: 'snooze', title: '⏰ In 1 hour' }];
   event.waitUntil(Promise.all([
     self.registration.showNotification(data.title || 'TaskFlow', options),
     tellClients({ type: 'refresh' }),
